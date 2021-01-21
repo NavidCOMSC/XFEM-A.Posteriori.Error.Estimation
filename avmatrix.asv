@@ -1,0 +1,38 @@
+function [AvE, AvS ] = avmatrix(DUs, SS )
+
+global DOMAIN CONNEC
+
+nXElem  = DOMAIN(1);                                                        % Number of elements in the x-direction
+nYElem  = DOMAIN(2);                                                        % Number of elements in the y-direction
+lXElem  = DOMAIN(3);                                                        % Length of elements in the x-direction
+
+
+%coordinates=[];
+size_coordinates = (nXElem+1)*(nYElem+1);
+AreaOmega = zeros(size_coordinates,1);
+AvE = zeros(size_coordinates,3);
+AvS = zeros(size_coordinates,3);
+area = (lXElem)^2;
+
+
+for iElem = 1:(nYElem*nXElem)
+    N1  = CONNEC(iElem,2);                                                  % Node 1 for current element
+    N2  = CONNEC(iElem,3);                                                  % Node 2 for current element
+    N3  = CONNEC(iElem,4);                                                  % Node 3 for current element
+    N4  = CONNEC(iElem,5);                                                  % Node 4 for current element
+    NN = [N1 N2 N3 N4];
+
+   % for j=1:size(NN,1)
+        AreaOmega(NN,:) = AreaOmega(NN,:)+area;
+        %disp(AvE(NN(j,:),:))
+        %disp(area*[1;1;1]*DUs(j,:))
+        AvE(NN,:) = AvE(NN,:)+area*[1;1;1;1]*DUs(iElem,:);
+        
+        AvS(NN,:) = AvS(NN,:)+area*[1;1;1;1]*SS(iElem,:);
+    %end
+end
+
+AvE = AvE./(AreaOmega*[1,1,1]);
+AvS = AvS./(AreaOmega*[1,1,1]);
+
+

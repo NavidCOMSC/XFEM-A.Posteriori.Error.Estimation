@@ -1,0 +1,77 @@
+function [ ux, uy, Duy, Dux, Duxy ] = getExactSol(x,y, MAT, FORCE, INC )
+
+%assume the body force is fx=0, fy =1, interface = 0.5
+E1 = MAT(1);
+E2 = MAT(3);
+
+%interface = INC(2);
+interface = 0.5;
+trac = FORCE(3);
+
+yleft = find(y<interface);
+yright = find(y>=interface);
+
+ux = 0;
+Dux(yleft)=0;
+
+%Constant body force
+%uy(yleft) = (1/E2)*(-(y(yleft).^2/2)+(trac+1).*y(yleft));
+
+%Linear body force distribution
+%uy(yleft) = (1/E2)*(-(y(yleft).^3/6)+(y(yleft)/2))+(E1/E2)*(trac*y(yleft));
+
+%Zero body force
+%uy(yleft) = (trac/E2)*y(yleft);
+
+%Derivation of exact solution for constant body force
+%Duy(yleft) = (1/E2)*(-(y(yleft))+(trac+1));
+
+%derivation of exact solution for linear body force
+%Duy(yleft) = (1/E2)*(-(y(yleft).^2/2)+(1/2))+(E1/E2)*trac;
+
+%Derivation of exact solution for zero body force
+Duy(yleft) = trac/E2;
+
+Duxy(yleft) = 0; %0.5*(Duy(yleft)+Dux(yleft));
+
+
+Dux(yright) = 0;
+
+%Constant body force 
+%uy(yright) = (1/E2)*(-(1/8)+(1/2)*(trac+1))+(1/E1)*(-(y(yright).^2/2)+(trac+1).*y(yright)+(1/8)-(1/2)*(trac+1));
+
+%Linear body force distribution
+%uy(yright) = (1/E2)*(-(1/48)+(1/4))+(E1/E2)*(trac/2)+(1/E1)*(-(y(yright).^3/6)+(y(yright)/2))+(trac*y(yright))...
+    %+(1/E1)*((1/48)-(1/4))-(trac/2);
+
+%Zero body force
+uy(yright) = ((0.5*trac)/E2)+(trac/E1)*(y(yright)-0.5);
+
+%Derivation of exact solution for constant body force
+%Duy(yright) = (1/E1)*(-y(yright)+(trac+1));
+
+%Derivation of exact solution for linear body force
+%Duy(yright) = (1/E1)*(-(y(yright).^2/2)+(1/2))+trac;
+
+%Derivation of exact solution for zero body force
+Duy(yright) = trac/E1;
+
+Duxy(yright) = 0; %0.5*(Duy(yright)+Dux(yright));
+
+% if y<interface
+%     
+%     ux = 0;
+%     uy = (1/E2)*(-(y.^2/2)+(trac+1).*y);
+%     %uy = (trac/E1)*y;   
+% else
+%     ux = 0;
+%     uy = (1/E2)*(-(1/8)+(1/2)*(trac+1))+(1/E1)*(-(y.^2/2)+(trac+1).*y+(1/8)-(1/2)*(trac+1));
+%     %uy = ((0.5*trac)/E1)+(trac/E2)*(y-0.5);
+% end
+     
+    
+%uy=uy/4;
+
+
+
+

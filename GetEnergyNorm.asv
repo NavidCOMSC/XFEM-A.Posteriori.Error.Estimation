@@ -1,0 +1,264 @@
+function [EnergyNorm, templ2] = GetEnergyNorm(DISP)
+
+global CHI CONNEC DOMAIN MAT NODES PSI XYZ ZETA FORCE INC
+
+%uxEnergyNorm=0;
+%uyEnergyNorm=0;
+%uxyEnergyNorm=0;
+EnergyNorm=0;
+
+nXElem  = DOMAIN(1);                                                        % Number of elements in the x-direction
+nYElem  = DOMAIN(2);                                                        % Number of elements in the y-direction
+lXElem  = DOMAIN(3);                                                        % Length of elements in the x-direction
+Em      = MAT(1);                                                           % Young's modulus for the matrix
+vm      = MAT(2);                                                           % Poisson's ratio for the matrix
+Ef      = MAT(3);                                                           % Young's modulus for the fiber
+vf      = MAT(4);                                                           % Poisson's ratio for the fiber
+plane   = MAT(5);                                                           % Plane stress or plane strain
+
+ngausspt = 6; %number of Gauss points for quad integration cells
+ngausspttri = 6; %number of Gauss points for tri integration cells
+ngausspttip = 7; %number of Gauss points for tip integration cells
+
+% Create elastic constant matrix
+if plane == 1                                                               % Plane stress
+    h = MAT(6);                                                             % Plane stress thickness
+    
+    C1 = Em/(1-vm^2);                                                       % Constant for elastic constant matrix
+    C2 = Em*vm/(1-vm^2);                                                    % Constant for elastic constant matrix
+    C3 = Em/2/(1+vm);                                                       % Constant for elastic constant matrix
+    Cm = h*[C1 C2  0;...
+            C2 C1  0;...
+             0  0 C3];
+    C1 = Ef/(1-vf^2);                                                       % Constant for elastic constant matrix
+    C2 = Ef*vf/(1-vf^2);                                                    % Constant for elastic constant matrix
+    C3 = Ef/2/(1+vf);                                                       % Constant for elastic constant matrix
+    Cf = h*[C1 C2  0;...
+            C2 C1  0;...
+             0  0 C3];        
+elseif plane == 2                                                           % Plane strain
+    C1 = Em*(1-vm)/(1+vm)/(1-2*vm);                                         % Constant for elastic constant matrix
+    C2 = Em*vm/(1+vm)/(1-2*vm);                                             % Constant for elastic constant matrix
+    C3 = Em/2/(1+vm);                                                       % Constant for elastic constant matrix
+    Cm  = [C1 C2  0;...
+           C2 C1  0;...
+            0  0 C3];
+    C1 = Ef*(1-vf)/(1+vf)/(1-2*vf);                                         % Constant for elastic constant matrix
+    C2 = Ef*vf/(1+vf)/(1-2*vf);                                             % Constant for elastic constant matrix
+    C3 = Ef/2/(1+vf);                                                       % Constant for elastic constant matrix
+    Cf  = [C1 C2  0;...
+           C2 C1  0;...
+            0  0 C3];    
+end
+
+EnergyNormElem = zeros(nYElem*nXElem,1);
+for iElem = 1:(nYElem*nXElem)
+    templ2 = 0;
+    N1  = CONNEC(iElem,2);                                                  % Node 1 for current element
+    N2  = CONNEC(iElem,3);                                                  % Node 2 for current element
+    N3  = CONNEC(iElem,4);                                                  % Node 3 for current element
+    N4  = CONNEC(iElem,5);                                                  % Node 4 for current element
+    NN  = NODES([N1 N2 N3 N4]',:);                                          % Nodal data for current element
+    CN  = [CHI(N1) CHI(N2) CHI(N3) CHI(N4)];                                % Nodal chi level set values
+    CTN = nnz(NN(:,4));                                                     % Number of nodes with crack tip enrichment
+    HEN = nnz(NN(:,2));                                                     % Number of nodes with Heaviside enrichment
+    IEN = nnz(NN(:,30));                                                    % Number of inclusion nodes
+    NEN = HEN+CTN+IEN;                                                      % Number of enriched nodes
+    
+    local  = [N1*2-1 N1*2 N2*2-1 N2*2 N3*2-1 N3*2 N4*2-1 N4*2];             % Traditional index locations
+    iLoc   = 9;                                                             % Next index location
+    if (NEN == 0)                                                           % Unenriched nodes
+        ZN = [ZETA(N1) ZETA(N2) ZETA(N3) ZETA(N4)];
+        
+        X1 = XYZ(N1,2); X2 = XYZ(N2,2); X3 = XYZ(N3,2); X4 = XYZ(N4,2);     % Nodal x-coordinates
+        Y1 = XYZ(N1,3); Y2 = XYZ(N2,3); Y3 = XYZ(N3,3); Y4 = XYZ(N4,3);     % Nodal y-coordinates
+        
+         xyz = [X1 Y1;X2 Y2;X3 Y3;X4 Y4];                                   % Nodal coordinate matrix
+         
+         [gp,gw,J] = subDomain(ngausspttri,CN,[],[],xyz,0,0,[]);
+         
+         for i = 1:length(gp)
+            xi = gp(i,1); eta = gp(i,2);                                    % Gauss points
+            W  = gw(i);                                                     % Gauss weights
+            
+            Ji   = [J(i,1) J(i,2);J(i,3) J(i,4)];                           % Jacobian of subdomain
+            detJ = det(Ji);                                                 % Determinant of the Jacobian
+            
+            N = 1/4*[(1-xi).*(1-eta);(1+xi).*(1-eta);...
+                (1+xi).*(1+eta);(1-xi).*(1+eta)];
+            
+            Zgp = N(1)*ZN(1)+N(2)*ZN(2)+N(3)*ZN(3)+N(4)*ZN(4);              % Material level set at current gauss point
+            Xgp = N(1)*X1+N(2)*X2+N(3)*X3+N(4)*X4;
+            Ygp = N(1)*Y1+N(2)*Y2+N(3)*Y3+N(4)*Y4;
+            
+            Nx = 2/lXElem*1/4*[-(1-eta);1-eta;1+eta;-(1+eta)];              % Derivative of shape functions with respect to x
+            Ny = 2/lXElem*1/4*[-(1-xi);-(1+xi);1+xi;1-xi];                  % Derivative of shape functions with respect to y
+            
+            Bu = [Nx(1)   0   Nx(2)   0   Nx(3)   0   Nx(4)   0;...
+                        0   Ny(1)   0   Ny(2)   0   Ny(3)   0   Ny(4);...
+                      Ny(1) Nx(1) Ny(2) Nx(2) Ny(3) Nx(3) Ny(4) Nx(4)];
+                  
+            if Zgp > 0, C = Cm; else C = Cf; end
+            
+            %Uxap = N'*DISP(local(1:2:end-1));
+            %Uyap = N'*DISP(local(2:2:end));
+            %DUxap = Nx'*DISP(local(1:2:end-1));
+            %size(Uxap)
+            %size(DUxap)
+            %DUxap = Nx*Uxap;
+            %DUyap = Ny'*DISP(local(2:2:end));
+            %DUyap = Ny*Uyap;
+            %DUxyap = 0.5*(DUxap+DUyap);
+            %DUap = [DUxap DUyap DUxyap];
+            DUap = Bu*DISP(local);
+            
+            [ ux, uy, Duy, Dux, Duxy ] = getExactSol(Xgp,Ygp, MAT, FORCE, INC );
+            DUex = [Dux Duy Duxy];
+            
+            %uxEnergyNorm = uxEnergyNorm + ((DUxap-Dux).^2)*detJ*W;
+            %uyEnergyNorm = uyEnergyNorm + ((DUyap-Duy).^2)*detJ*W;
+            %uxyEnergyNorm = uxyEnergyNorm + ((DUxyap-Duxy).^2)*detJ*W;
+            %size(C)
+            %size(DUap)
+            %size(DUex)
+            templ2 = templ2 + ((DUap'-DUex)*C*(DUap'-DUex)')*detJ*W;
+            %if max(abs(DUap-DUex))>1e-6
+                %DUap
+                %DUex
+                %iElem
+                %Bu
+            %end
+         end
+         
+         elseif NEN > 0                                                     % Enriched element
+             
+             X1 = XYZ(N1,2); X2 = XYZ(N2,2); X3 = XYZ(N3,2); X4 = XYZ(N4,2);     % Nodal x-coordinates
+             Y1 = XYZ(N1,3); Y2 = XYZ(N2,3); Y3 = XYZ(N3,3); Y4 = XYZ(N4,3);     % Nodal y-coordinates
+             
+             if NEN == 4
+            xyz = [X1 Y1;X2 Y2;X3 Y3;X4 Y4];                                % Nodal coordinate matrix
+            
+            if numel(PSI) == 0, PN = [0 0 0 0]; else
+                PN = [ PSI(N1)  PSI(N2)  PSI(N3)  PSI(N4)];                 % Nodal crack level set values
+            end
+            ZN = [ZETA(N1) ZETA(N2) ZETA(N3) ZETA(N4)];                     % Nodal inclusion level set values
+             
+            if IEN == 4
+                [gp,gw,J] = subDomain(ngausspttri,CN,PN,ZN,xyz,0,0,[]);
+                
+                
+            elseif HEN == 4                                                 % Full Heaviside enrichment
+                [gp,gw,J] = subDomain(ngausspttri,CN,PN,ZN,xyz,0,0,[]);
+            elseif CTN == 4                                                 % Full crack tip enrichmnet
+                [gp,gw,J] = subDomain(ngausspttip,CN,PN,ZN,xyz,1,0,[]);
+            else                                                            % Full heaviside/crack tip enrichment
+                [gp,gw,J] = subDomain(ngausspttip,CN,PN,ZN,xyz,0,0,[]);
+            end
+            
+             else
+                [gp,gw] = gauss(ngausspt,'QUAD');
+                J = [];
+             end
+             
+             for i = 1:length(gp)
+                xi = gp(i,1); eta = gp(i,2);                                    % Gauss points
+                W  = gw(i);                                                     % Gauss weights
+                if isempty(J) == 0
+                    Ji   = [J(i,1) J(i,2);J(i,3) J(i,4)];                       % Jacobian of subdomain
+                    detJ = det(Ji);                                             % Determinant of the Jacobian
+                else
+                    detJ  = lXElem/2*lXElem/2;                                  % Determinant of the Jacobian
+                end
+                N  = 1/4*[(1-xi)*(1-eta);(1+xi)*(1-eta);...                     % Shape functions
+                    (1+xi)*(1+eta);(1-xi)*(1+eta)];
+
+                X1 = XYZ(N1,2); X2 = XYZ(N2,2); X3 = XYZ(N3,2); X4 = XYZ(N4,2); % Nodal x-coordinates
+                Y1 = XYZ(N1,3); Y2 = XYZ(N2,3); Y3 = XYZ(N3,3); Y4 = XYZ(N4,3); % Nodal y-coordinates
+
+                Xgp = N(1)*X1+N(2)*X2+N(3)*X3+N(4)*X4;                          % The global X for the current gauss point
+                Ygp = N(1)*Y1+N(2)*Y2+N(3)*Y3+N(4)*Y4;                          % The global Y for the current gauss point
+                Zgp = N(1)*ZETA(N1)+N(2)*ZETA(N2)+N(3)*ZETA(N3)+N(4)*ZETA(N4);  % Material level set at current gauss point
+
+                Nenr = [];
+                Benr = [];
+                index = 1;
+
+                for iN = 1:4
+                    if NN(iN,30) ~= 0
+                        zeta = ZETA([N1 N2 N3 N4]);
+                        zabs = abs(zeta);
+                        Zm   = N(1)*zeta(1)+N(2)*zeta(2)+N(3)*zeta(3)+N(4)*zeta(4);%dot(N,zeta);
+                        Za   = N(1)*zabs(1)+N(2)*zabs(2)+N(3)*zabs(3)+N(4)*zabs(4);%dot(N,zabs);
+                        Zmn  = Zm/abs(Zm);
+                        E  = Za-abs(Zm);
+
+                        Ex = Nx(1)*zabs(1)+Nx(2)*zabs(2)+Nx(3)*zabs(3)+Nx(4)*zabs(4)-...
+                          Zmn*(Nx(1)*zeta(1)+Nx(2)*zeta(2)+Nx(3)*zeta(3)+Nx(4)*zeta(4));%dot(Nx,zabs)-Zm/zmab*dot(Nx,zeta);
+                        Ey = Ny(1)*zabs(1)+Ny(2)*zabs(2)+Ny(3)*zabs(3)+Ny(4)*zabs(4)-...
+                              Zmn*(Ny(1)*zeta(1)+Ny(2)*zeta(2)+Ny(3)*zeta(3)+Ny(4)*zeta(4));%dot(Ny,zabs)-Zm/zmab*dot(Ny,zeta);
+
+                        Ba = [Nx(iN)*E+N(iN)*Ex         0;
+                                      0         Ny(iN)*E+N(iN)*Ey;
+                              Ny(iN)*E+N(iN)*Ey Nx(iN)*E+N(iN)*Ex];
+
+                        Benr(:,index:(index+1)) = Ba;
+                        index=index+2;
+
+                        Nenr((index-1)/2) = N(iN)*E;
+
+
+                        if (i == 1)
+                            local(iLoc:(iLoc+1)) = [2*NN(iN,30)-1 2*NN(iN,30)];
+                            iLoc = iLoc+2;
+                        end
+                    end
+                end
+                
+                if Zgp > 0, C = Cm; else C = Cf; end
+                %size(Bu)
+                %size(Benr)
+                %size(N)
+                %size(Nenr)
+                %pause
+                B = [Bu Benr];
+                %Nall = [N' Nenr];
+                %size(Nall)
+                %size(B)
+                %Uxap = Nall*DISP(local(1:2:end-1));
+                %DUxap = B*Uxap;
+                %size(local(1:2:end-1))
+                %DUxap = B*DISP(local(1:2:end-1));
+                %Uyap = Nall*DISP(local(2:2:end));
+                %DUyap = B*Uyap;
+                %DUyap = B*DISP(local(2:2:end));
+                %DUxyap = 0.5*(DUxap+DUyap);
+                %DUap = [DUxap DUyap DUxyap];
+                %size(DISP(local))
+                DUap = B*DISP(local);
+                
+                [ ux, uy, Duy, Dux, Duxy ] = getExactSol(Xgp,Ygp, MAT, FORCE, INC );
+                
+                DUex = [Dux Duy Duxy];
+                %size(DUxap)
+                %size(Dux)
+                
+                %uxEnergyNorm = uxEnergyNorm+((DUxap-Dux).^2)*detJ*W;
+                %uyEnergyNorm = uyEnergyNorm+((DUyap-Duy).^2)*detJ*W;
+                %uxyEnergyNorm = uxyEnergyNorm+((DUxyap-Duxy).^2)*detJ*W;
+                %size(DUap)
+                %size(DUex)
+                
+                templ2 = templ2 + ((DUap'-DUex)*C*(DUap'-DUex)')*detJ*W;
+         end
+    end
+    EnergyNorm = EnergyNorm + templ2;
+    Energy      
+end
+
+
+            
+            
+            
+            
+         
+        

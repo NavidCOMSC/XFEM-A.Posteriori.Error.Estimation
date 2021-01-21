@@ -1,0 +1,11 @@
+function [Sigmaxx, Sigmayy, Sigmaxy] = getExactStressSol(x,y,FORCE)
+
+trac = FORCE(3);
+
+[theta,rho] = cart2pol(x,y);
+Sigmaxx = trac-trac*((0.5)^2/(rho)^2)*((3/2)*cos(2*theta)+cos(4*theta))...
+    +trac*((3/2)*((0.5)^4/(rho)^4))*cos4*theta;
+Sigmayy = -trac*((0.5)^2/(rho)^2)*((1/2)*cos(2*theta)-cos(4*theta))...
+    -trac*((3/2)*((0.5)^4/(rho)^4))*cos4*theta;
+Sigmaxy = -trac*((0.5)^2/(rho)^2)*((1/2)*sin(2*theta)+sin(4*theta))...
+    +trac*(())

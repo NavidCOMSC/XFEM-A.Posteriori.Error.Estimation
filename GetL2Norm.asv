@@ -1,0 +1,210 @@
+function [uxL2Norm,uyL2Norm,L2Norm] =GetL2Norm(DISP)
+
+global CHI CONNEC DOMAIN MAT NODES PSI XYZ ZETA FORCE INC
+
+uxL2Norm=0;
+uyL2Norm=0;
+L2Norm = 0;
+
+nXElem  = DOMAIN(1);                                                        % Number of elements in the x-direction
+nYElem  = DOMAIN(2);                                                        % Number of elements in the y-direction
+lXElem  = DOMAIN(3);                                                        % Length of elements in the x-direction
+%Em      = MAT(1);                                                           % Young's modulus for the matrix
+%vm      = MAT(2);                                                           % Poisson's ratio for the matrix
+%Ef      = MAT(3);                                                           % Young's modulus for the fiber
+%vf      = MAT(4);                                                           % Poisson's ratio for the fiber
+%plane   = MAT(5);                                                           % Plane stress or plane strain
+
+
+
+% Initialize the variables which will create the traditional sparse matrix
+%nIndexT  = 0;                                                               % Initialize index
+%uenrElem = nXElem*nYElem-length(enrElem)-length(IElem);                     % Number of unenriched elements
+%allRowT  = ones(uenrElem*64,1);                                             % Row indices
+%allColT  = ones(uenrElem*64,1);                                             % Column indices
+%allValT  = zeros(uenrElem*64,1);                                            % Stiffness matrix values
+
+for iElem = 1:(nYElem*nXElem)
+    templ2 = 0;
+    N1  = CONNEC(iElem,2);                                                  % Node 1 for current element
+    N2  = CONNEC(iElem,3);                                                  % Node 2 for current element
+    N3  = CONNEC(iElem,4);                                                  % Node 3 for current element
+    N4  = CONNEC(iElem,5);                                                  % Node 4 for current element
+    NN  = NODES([N1 N2 N3 N4]',:);                                          % Nodal data for current element
+    CN  = [CHI(N1) CHI(N2) CHI(N3) CHI(N4)];                                % Nodal chi level set values            
+    CTN = nnz(NN(:,4));                                                     % Number of nodes with crack tip enrichment    
+    HEN = nnz(NN(:,2));                                                     % Number of nodes with Heaviside enrichment
+    IEN = nnz(NN(:,30));                                                    % Number of inclusion nodes    
+    NEN = HEN+CTN+IEN;                                                      % Number of enriched nodes
+    
+    
+    local  = [N1*2-1 N1*2 N2*2-1 N2*2 N3*2-1 N3*2 N4*2-1 N4*2];             % Traditional index locations
+    iLoc   = 9;                                                             % Next index location
+    if (NEN == 0)                                                           % Unenriched nodes
+        
+        
+        X1 = XYZ(N1,2); X2 = XYZ(N2,2); X3 = XYZ(N3,2); X4 = XYZ(N4,2);     % Nodal x-coordinates
+        Y1 = XYZ(N1,3); Y2 = XYZ(N2,3); Y3 = XYZ(N3,3); Y4 = XYZ(N4,3);     % Nodal y-coordinates
+        
+        xyz = [X1 Y1;X2 Y2;X3 Y3;X4 Y4];                                    % Nodal coordinate matrix
+        %ZN  = [ZETA(N1) ZETA(N2) ZETA(N3) ZETA(N4)];                        % Nodal inclusion level set values
+        
+        [gp,gw,J] = subDomain(3,CN,[],[],xyz,0,0,[]);
+        
+        %gp
+        for i = 1:length(gp)
+            xi = gp(i,1); eta = gp(i,2);                                    % Gauss points
+            W  = gw(i);                                                     % Gauss weights
+
+            Ji   = [J(i,1) J(i,2);J(i,3) J(i,4)];                           % Jacobian of subdomain
+            detJ = det(Ji);                                                 % Determinant of the Jacobian
+
+            N = 1/4*[(1-xi).*(1-eta);(1+xi).*(1-eta);...
+                (1+xi).*(1+eta);(1-xi).*(1+eta)];
+            Xgp = N(1)*X1+N(2)*X2+N(3)*X3+N(4)*X4;
+            Ygp = N(1)*Y1+N(2)*Y2+N(3)*Y3+N(4)*Y4;
+            %size(N)
+            %size(DISP(local(1:2:end-1)))
+            
+            Uxap = N'*DISP(local(1:2:end-1));
+            Uyap = N'*DISP(local(2:2:end));
+            
+            [ ux, uy ] = getExactSol(Xgp,Ygp, MAT, FORCE, INC );
+            %(Uyap-uy)^2
+            %xi
+            %eta
+            %Xgp
+            %Ygp
+            %pause
+            uxL2Norm = uxL2Norm + ((Uxap-ux)^2)*detJ*W;
+            uyL2Norm = uyL2Norm + ((Uyap-uy)^2)*detJ*W;
+            templ2 = templ2 + ((Uxap-ux)^2+(Uyap-uy)^2)*detJ*W;
+
+        end
+        
+            
+
+    elseif NEN > 0                                                          % Enriched element
+        %disp('Hello')
+        %pause
+        X1 = XYZ(N1,2); X2 = XYZ(N2,2); X3 = XYZ(N3,2); X4 = XYZ(N4,2);     % Nodal x-coordinates
+        Y1 = XYZ(N1,3); Y2 = XYZ(N2,3); Y3 = XYZ(N3,3); Y4 = XYZ(N4,3);     % Nodal y-coordinates
+        
+        if NEN == 4
+            xyz = [X1 Y1;X2 Y2;X3 Y3;X4 Y4];                                % Nodal coordinate matrix
+        
+            if numel(PSI) == 0, PN = [0 0 0 0]; else
+                    PN = [ PSI(N1)  PSI(N2)  PSI(N3)  PSI(N4)];             % Nodal crack level set values
+            end
+            ZN = [ZETA(N1) ZETA(N2) ZETA(N3) ZETA(N4)];                     % Nodal inclusion level set values
+            
+            if IEN == 4
+                [gp,gw,J] = subDomain(3,CN,PN,ZN,xyz,0,0,[]);
+                
+              
+            elseif HEN == 4                                                 % Full Heaviside enrichment
+                [gp,gw,J] = subDomain(3,CN,PN,ZN,xyz,0,0,[]);
+            elseif CTN == 4                                                 % Full crack tip enrichmnet
+                [gp,gw,J] = subDomain(7,CN,PN,ZN,xyz,1,0,[]);
+            else                                                            % Full heaviside/crack tip enrichment
+                [gp,gw,J] = subDomain(7,CN,PN,ZN,xyz,0,0,[]);
+            end
+%             
+%          if min(CN) < 0
+%                 xi      = gp(:,1); 
+%                 eta     = gp(:,2);                
+%                 N       = 1/4*[(1-xi).*(1-eta) (1+xi).*(1-eta) (1+xi).*(1+eta) (1-xi).*(1+eta)];
+%                 chi     = N(:,1)*CN(1)+N(:,2)*CN(2)+N(:,3)*CN(3)+N(:,4)*CN(4);
+%                 R       = find(chi <= 0);
+%                 J(R,:)  = [];
+%                 gp(R,:) = [];
+%                 gw(R,:) = [];
+%          end
+          
+        else                                                                % Partially enriched element
+%             if min(CN) < 0
+%                 PN        = [ PSI(N1)  PSI(N2)  PSI(N3)  PSI(N4)];          % Nodal crack level set values
+%                 ZN        = [ZETA(N1) ZETA(N2) ZETA(N3) ZETA(N4)];          % Nodal inclusion level set values
+%                 
+%                 [gp,gw,J] = subDomain(3,CN,PN,ZN,xyz,0,0,[]);
+%                 xi        = gp(:,1); 
+%                 eta       = gp(:,2);                
+%                 N         = 1/4*[(1-xi).*(1-eta) (1+xi).*(1-eta) (1+xi).*(1+eta) (1-xi).*(1+eta)];
+%                 chi       = N(:,1)*CN(1)+N(:,2)*CN(2)+N(:,3)*CN(3)+N(:,4)*CN(4);
+%                 R         = find(chi <= 0);
+%                 J(R,:)  = [];
+%                 gp(R,:) = [];
+%                 gw(R,:) = [];              
+%             else
+                [gp,gw] = gauss(6,'QUAD');
+                J = [];
+            %end            
+        end
+        
+        for i = 1:length(gp)
+            xi = gp(i,1); eta = gp(i,2);                                    % Gauss points
+            W  = gw(i);                                                     % Gauss weights
+            if isempty(J) == 0
+                Ji   = [J(i,1) J(i,2);J(i,3) J(i,4)];                       % Jacobian of subdomain
+                detJ = det(Ji);                                             % Determinant of the Jacobian
+            else
+                detJ  = lXElem/2*lXElem/2;                                  % Determinant of the Jacobian
+            end
+            N  = 1/4*[(1-xi)*(1-eta);(1+xi)*(1-eta);...                     % Shape functions
+                          (1+xi)*(1+eta);(1-xi)*(1+eta)];
+
+            X1 = XYZ(N1,2); X2 = XYZ(N2,2); X3 = XYZ(N3,2); X4 = XYZ(N4,2); % Nodal x-coordinates
+            Y1 = XYZ(N1,3); Y2 = XYZ(N2,3); Y3 = XYZ(N3,3); Y4 = XYZ(N4,3); % Nodal y-coordinates
+
+            Xgp = N(1)*X1+N(2)*X2+N(3)*X3+N(4)*X4;                          % The global X for the current gauss point
+            Ygp = N(1)*Y1+N(2)*Y2+N(3)*Y3+N(4)*Y4;                          % The global Y for the current gauss point
+            %Zgp = N(1)*ZETA(N1)+N(2)*ZETA(N2)+N(3)*ZETA(N3)+N(4)*ZETA(N4); % Material level set at current gauss point
+
+            Nenr = [];
+            index = 1;
+
+            for iN = 1:4
+                if NN(iN,30) ~= 0
+                        zeta = ZETA([N1 N2 N3 N4]);
+                        zabs = abs(zeta);
+                        Zm   = N(1)*zeta(1)+N(2)*zeta(2)+N(3)*zeta(3)+N(4)*zeta(4);%dot(N,zeta);
+                        Za   = N(1)*zabs(1)+N(2)*zabs(2)+N(3)*zabs(3)+N(4)*zabs(4);%dot(N,zabs);
+                        %Zmn  = Zm/abs(Zm);
+
+                        E  = Za-abs(Zm);
+                        Nenr(index) = N(iN)*E;
+                        index=index+1;
+
+                        if (i == 1)
+                            local(iLoc:(iLoc+1)) = [2*NN(iN,30)-1 2*NN(iN,30)];
+                            iLoc = iLoc+2;
+                        end      
+                end
+
+
+            end
+            Nall = [N' Nenr];
+            %N'
+            %Nenr
+            %size(Nall)
+            %size(DISP(local(1:2:end-1)))
+            Uxap = Nall*DISP(local(1:2:end-1));
+            Uyap = Nall*DISP(local(2:2:end));
+            [ ux, uy ] = getExactSol(Xgp,Ygp, MAT, FORCE, INC );
+            uxL2Norm = uxL2Norm+((Uxap-ux)^2)*detJ*W;
+            uyL2Norm = uyL2Norm+((Uyap-uy)^2)*detJ*W;
+            templ2 = templ2 + ((Uxap-ux)^2+(Uyap-uy)^2)*detJ*W;
+        end
+    end
+    L2Norm = L2Norm + templ2;
+    %templ2
+end
+
+        
+      
+        
+
+        
+        
+        
+
